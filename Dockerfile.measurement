@@ -1,0 +1,17 @@
+FROM python:3.11-slim-bookworm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    traceroute \
+    iputils-ping \
+    iproute2 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY subscriber/rtt_client.py /app/
+COPY subscriber/traceroute_runner.py /app/
+COPY subscriber/measure.py /app/
+
+RUN mkdir -p /results
+
+ENTRYPOINT ["python3", "/app/measure.py"]
