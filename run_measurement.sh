@@ -108,9 +108,14 @@ collect_ssh() {
         "$COLLECT_HOST" "$cmd" 2>/dev/null || true
 }
 
+kill_echo_server() {
+    # pkill -f would also match the sshd process, so use a pid file approach
+    relay_ssh 'test -f /tmp/udp_echo.pid && kill $(cat /tmp/udp_echo.pid) 2>/dev/null; rm -f /tmp/udp_echo.pid; true'
+}
+
 cleanup_all() {
     log "  Cleaning up..."
-    relay_ssh "pkill -f udp_echo_server.py 2>/dev/null; true"
+    kill_echo_server
     docker rm -f net-measure 2>/dev/null || true
     sleep 1
 }
@@ -182,31 +187,41 @@ check_connectivity() {
 
 deploy_echo_server() {
     log "  Deploying UDP echo server to relay..."
-    # Upload the echo server script
+    # Upload the echo server script from subscriber to relay
+    local rc=0
     sshpass -p "$RELAY_PASS" scp -o StrictHostKeyChecking=no \
         "$SCRIPT_DIR/relay/udp_echo_server.py" \
-        "$RELAY_HOST:/tmp/udp_echo_server.py" 2>/dev/null
+        "$RELAY_HOST:/tmp/udp_echo_server.py" 2>/dev/null || rc=$?
 
-    if [[ $? -ne 0 ]]; then
-        log_err "  Failed to upload echo server"
+    if [[ $rc -ne 0 ]]; then
+        log_err "  Failed to upload echo server (rc=$rc)"
         return 1
     fi
     log "  ✓ Echo server deployed to relay"
 }
 
 start_echo_server() {
-    relay_ssh "pkill -f udp_echo_server.py 2>/dev/null; true"
+    kill_echo_server
     sleep 1
-    relay_ssh "nohup python3 /tmp/udp_echo_server.py --port $RELAY_ECHO_PORT \
-        > /tmp/udp_echo_server.log 2>&1 </dev/null & sleep 1; echo started; exit 0" 15
+    # Create a start script on the relay to avoid pkill/pgrep killing SSH
+    relay_ssh 'cat > /tmp/start_echo.sh << "INNEREOF"
+#!/bin/bash
+nohup python3 /tmp/udp_echo_server.py --port '"$RELAY_ECHO_PORT"' > /tmp/udp_echo_server.log 2>&1 &
+echo $! > /tmp/udp_echo.pid
+echo $!
+INNEREOF
+chmod +x /tmp/start_echo.sh' 15
 
-    # Verify it's running
-    sleep 2
     local pid
-    pid=$(relay_ssh "pgrep -f udp_echo_server.py || echo ''")
-    if [[ -z "$pid" ]]; then
+    pid=$(relay_ssh '/tmp/start_echo.sh' 15)
+    sleep 2
+
+    # Verify it's running by checking the pid file
+    local check
+    check=$(relay_ssh 'test -f /tmp/udp_echo.pid && kill -0 $(cat /tmp/udp_echo.pid) 2>/dev/null && echo running || echo stopped')
+    if [[ "$check" != *"running"* ]]; then
         log_err "  Echo server failed to start on relay"
-        relay_ssh "cat /tmp/udp_echo_server.log 2>/dev/null"
+        relay_ssh 'cat /tmp/udp_echo_server.log 2>/dev/null'
         return 1
     fi
     log "  ✓ Echo server running (pid: $pid)"
@@ -232,9 +247,9 @@ run_single() {
     docker rm -f net-measure 2>/dev/null || true
 
     # Ensure echo server is running
-    local pid
-    pid=$(relay_ssh "pgrep -f udp_echo_server.py || echo ''")
-    if [[ -z "$pid" ]]; then
+    local check
+    check=$(relay_ssh 'test -f /tmp/udp_echo.pid && kill -0 $(cat /tmp/udp_echo.pid) 2>/dev/null && echo running || echo stopped')
+    if [[ "$check" != *"running"* ]]; then
         log "  Echo server not running, restarting..."
         start_echo_server || return 1
     fi
