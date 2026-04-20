@@ -1,0 +1,13 @@
+# Relay QUIC config — single-path experiment
+max_idle_timeout: 60000
+enable_multipath: true
+active_connection_id_limit: 8
+initial_max_streams_uni: 10000
+initial_max_streams_bidi: 100
+initial_max_data: 200000000
+initial_max_stream_data_bidi_local: 1000000
+initial_max_stream_data_bidi_remote: 10000000
+initial_max_stream_data_uni: 20000000
+multipath_algorithm: "mpmoq"
+multipath_paths: ["eth0"]
+bind_address: "0.0.0.0:4443"

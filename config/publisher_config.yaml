@@ -1,0 +1,17 @@
+# Publisher QUIC config — single-path to relay
+max_idle_timeout: 60000
+enable_multipath: false
+active_connection_id_limit: 8
+initial_max_streams_uni: 10000
+initial_max_streams_bidi: 100
+initial_max_data: 100000000
+initial_max_stream_data_bidi_local: 1000000
+initial_max_stream_data_bidi_remote: 10000000
+initial_max_stream_data_uni: 10000000
+multipath_algorithm: "minrtt"
+frames_per_gop: 50
+multipath_paths: ["wlp0s20f3"]
+multipath_local_addresses:
+  - "0.0.0.0:0"
+multipath_remote_addresses:
+  - "5.75.186.96:4443"
